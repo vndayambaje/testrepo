@@ -1,0 +1,229 @@
+Creating unit tests for your Unified Data Science Platform (UDSP) ensures that each part of your application works correctly. Here’s a comprehensive guide to setting up and writing unit tests for the various components and services using Jest and React Testing Library.
+
+### 1. Setting Up the Testing Environment
+
+#### 1.1. Install Dependencies
+
+First, you need to install Jest and React Testing Library if you haven't already:
+
+```bash
+npm install --save-dev jest @testing-library/react @testing-library/jest-dom @testing-library/user-event
+```
+
+Ensure your `package.json` has the following configuration for Jest:
+
+```json
+"scripts": {
+  "test": "react-scripts test"
+},
+"jest": {
+  "testEnvironment": "jsdom"
+}
+```
+
+### 2. Testing Components
+
+#### 2.1. Navbar Component
+
+Create `src/components/__tests__/Navbar.test.js`:
+
+```javascript
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import { BrowserRouter as Router } from 'react-router-dom';
+import Navbar from '../Navbar';
+
+test('renders navigation links', () => {
+  render(
+    <Router>
+      <Navbar />
+    </Router>
+  );
+
+  expect(screen.getByText(/Home/i)).toBeInTheDocument();
+  expect(screen.getByText(/Users/i)).toBeInTheDocument();
+});
+```
+
+#### 2.2. Weather Component
+
+Create `src/components/__tests__/Weather.test.js`:
+
+```javascript
+import React from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import Weather from '../Weather';
+import { getWeather } from '../../services/weatherService';
+
+jest.mock('../../services/weatherService');
+
+test('fetches and displays weather data', async () => {
+  const mockWeatherData = {
+    name: 'London',
+    weather: [{ description: 'clear sky' }],
+    main: { temp: 293.15 }
+  };
+
+  getWeather.mockResolvedValue({ data: mockWeatherData });
+
+  render(<Weather />);
+
+  fireEvent.change(screen.getByPlaceholderText(/Enter city/i), { target: { value: 'London' } });
+  fireEvent.click(screen.getByText(/Get Weather/i));
+
+  const cityName = await screen.findByText('London');
+  expect(cityName).toBeInTheDocument();
+  expect(screen.getByText(/clear sky/i)).toBeInTheDocument();
+  expect(screen.getByText(/20\.00°C/i)).toBeInTheDocument();
+});
+```
+
+#### 2.3. Salesforce Component
+
+Create `src/components/__tests__/Salesforce.test.js`:
+
+```javascript
+import React from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import Salesforce from '../Salesforce';
+import { loginToSalesforce, querySalesforce } from '../../services/salesforceService';
+
+jest.mock('../../services/salesforceService');
+
+test('logs in to Salesforce and fetches data', async () => {
+  const mockAccounts = { records: [{ Id: '001', Name: 'Test Account' }] };
+
+  loginToSalesforce.mockResolvedValue({});
+  querySalesforce.mockResolvedValue(mockAccounts);
+
+  render(<Salesforce />);
+
+  fireEvent.change(screen.getByPlaceholderText(/Username/i), { target: { value: 'testUser' } });
+  fireEvent.change(screen.getByPlaceholderText(/Password/i), { target: { value: 'testPass' } });
+  fireEvent.change(screen.getByPlaceholderText(/Security Token/i), { target: { value: 'testToken' } });
+  fireEvent.click(screen.getByText(/Login to Salesforce/i));
+
+  const accountName = await screen.findByText('Test Account');
+  expect(accountName).toBeInTheDocument();
+});
+```
+
+### 3. Testing Services
+
+#### 3.1. Weather Service
+
+Create `src/services/__tests__/weatherService.test.js`:
+
+```javascript
+import axios from 'axios';
+import { getWeather } from '../weatherService';
+
+jest.mock('axios');
+
+test('fetches weather data from API', async () => {
+  const mockWeatherData = { data: { name: 'London' } };
+  axios.get.mockResolvedValue(mockWeatherData);
+
+  const data = await getWeather('London');
+  expect(data).toEqual(mockWeatherData);
+  expect(axios.get).toHaveBeenCalledWith(
+    `https://api.openweathermap.org/data/2.5/weather?q=London&appid=${process.env.REACT_APP_OPENWEATHERMAP_API_KEY}`
+  );
+});
+```
+
+#### 3.2. Salesforce Service
+
+Create `src/services/__tests__/salesforceService.test.js`:
+
+```javascript
+import jsforce from 'jsforce';
+import { loginToSalesforce, querySalesforce } from '../salesforceService';
+
+jest.mock('jsforce');
+
+test('logs in to Salesforce', async () => {
+  const mockConn = { login: jest.fn().mockResolvedValue({}) };
+  jsforce.Connection.mockImplementation(() => mockConn);
+
+  await loginToSalesforce('username', 'password', 'token');
+  expect(mockConn.login).toHaveBeenCalledWith('username', 'passwordtoken');
+});
+
+test('queries Salesforce', async () => {
+  const mockConn = { query: jest.fn().mockResolvedValue({ records: [] }) };
+  jsforce.Connection.mockImplementation(() => mockConn);
+
+  const data = await querySalesforce('SELECT Id, Name FROM Account');
+  expect(data).toEqual({ records: [] });
+  expect(mockConn.query).toHaveBeenCalledWith('SELECT Id, Name FROM Account');
+});
+```
+
+### 4. Testing Cloud Storage Integration (AWS S3)
+
+Create `src/services/__tests__/awsConfig.test.js`:
+
+```javascript
+import AWS from 'aws-sdk';
+import { uploadFile } from '../awsConfig';
+
+jest.mock('aws-sdk');
+
+test('uploads file to S3', async () => {
+  const mockUpload = jest.fn().mockReturnThis();
+  mockUpload.promise = jest.fn().mockResolvedValue({ Location: 'http://s3.amazonaws.com/bucket/key' });
+  AWS.S3.mockImplementation(() => ({ upload: mockUpload }));
+
+  const result = await uploadFile(new Blob(['file content']), 'bucket', 'key');
+  expect(result).toEqual({ Location: 'http://s3.amazonaws.com/bucket/key' });
+  expect(mockUpload).toHaveBeenCalledWith({
+    Bucket: 'bucket',
+    Key: 'key',
+    Body: new Blob(['file content'])
+  });
+});
+```
+
+### 5. Testing Payment Processing (Stripe)
+
+Create `src/services/__tests__/stripeService.test.js`:
+
+```javascript
+import { loadStripe } from '@stripe/stripe-js';
+import { createPaymentIntent } from '../stripeService';
+
+jest.mock('@stripe/stripe-js');
+
+test('creates a payment intent', async () => {
+  const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+    json: jest.fn().mockResolvedValue({ clientSecret: 'test_secret' })
+  });
+
+  const result = await createPaymentIntent(1000);
+  expect(result).toEqual({ clientSecret: 'test_secret' });
+  expect(mockFetch).toHaveBeenCalledWith('/create-payment-intent', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ amount: 1000 })
+  });
+
+  mockFetch.mockRestore();
+});
+```
+
+### Running the Tests
+
+To run all the tests, use:
+
+```bash
+npm test
+```
+
+This command will run all the test cases and display the results in the terminal.
+
+### Conclusion
+
+By following these steps, you can ensure that each component and service of your Unified Data Science Platform is thoroughly tested. This will help you catch bugs early, maintain code quality, and provide a robust application to your users. Remember to update your tests as you add new features or make changes to your codebase.
